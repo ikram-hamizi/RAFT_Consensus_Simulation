@@ -8,127 +8,143 @@ from collections import Counter
 class Raft():
     
     def __init__(self, n=5):
-        self.replicas = 3
-        self.followers = [Follower(i+1) for i in range(self.replicas)]
+        self.followers = [Follower(i+1) for i in range(n)]
         self.followers_threads = None
         self.LEADER = None
         self.ElectionStart = False
         self.votesDict = {}
         
-        
+        # RAFT on start 
+        # 1. Initialize Followers with timeouts
+        # 2. Elect a Leader
+        # 3. Leader starts periodically sending hearbeats to Followers
+        # 4. Follower's timeouts are reset unless the Leader is down
+        # 5. If a Leader is down, repeat step 2
         self._raft_on_start()
            
     
+    def command(self, command='incrementY', flag, reps=100):
+        if command == 'incrementY':
+            
     # LIST OF CLIENT OPERATIONS
     ###########################
     def incrementY(self, flag, reps=100):
         self.LEADER.leader_on_receive_request(flag, 'incrementY', reps=reps)
         
     def sum(self, data):
+        # Example
         #self.LEADER.leader_on_receive_request(data, 'sum')
         return None
         
     def sub(self, data):
+        # Example
         #self.LEADER.leader_on_receive_request(data, 'sub')
         return None
     ###########################
-        
+   
+   
+    # PRIVATE FUNCTION
+    ###########################
     def _raft_on_start(self):
             
         self.ElectionStart = False
         
-        #1. Spawn the FOLLOWERs           
-        #   Followers run as threads #(THREAD 🧵)
+        # 1. Spawn the FOLLOWERs           
+        #   Followers run as Threads #(THREAD 🧵)
         #   - They die when they reach timeout and become candidates
         #   - Else, they wait for heartbeats to reset the timeout
         
+        print("Initialization of Servers...\n")
         for Follower in self.followers:
             voters = [f for f in self.followers if f is not Follower]
             Follower.reset_timeout(voters) #(THREAD 🧵)
         
-        print("*************")
-        print("Start Network")
-        print("*************\n")
+        
         # RUN NETWORK INFINITELY
-
-
+        print("\n*************" \
+              "Start Network" \
+              "*************\n")
+                 
         while True: 
-            sleep(1)
-            
+                        
             if self.LEADER != None:
-                print(f"\n\n-------TERM NUMBER = {self.LEADER.TermNumber}---------")
-            # --------------------------------------------------
-            # LEADER IS PERIODICALLY SENDING HEARTBEATS 💓
-            # PROGRAM CHECKS IF ANY FOLLOWER IS DOWN/LEADERLESS
-            # IF SO, IT STARTS A NEW LEADER ELECTION
-            # --------------------------------------------------        
+                print(f"\n\n"\
+                       "-"*8 \
+                       f"TERM NUMBER = {self.LEADER.TermNumber}"\
+                       "-"*8)
+            # ----------------------------------------------------
+            # * LEADER IS PERIODICALLY SENDING HEARTBEATS 💓
+            # * THE PROGRAM CHECKS IF A FOLLOWER BEAME A CANDIDATE
+            #   IF SO, IT STARTS A NEW LEADER ELECTION
+            # ----------------------------------------------------       
             
             FOLLOWERS = self.followers if self.LEADER is None else self.LEADER.followers 
             
-            
             for Follower in FOLLOWERS:
-               
-                #   check if a FOLLOWER reaches timeout
-                #2. If so, Start LEADER Election 
+                 
+                # 2. Check if a FOLLOWER reaches timeout
+                #   If so, collect the votes to compare 
+                #   them and finalize the LEADER Election 
+                
                 if Follower.state == 'Candidate': 
-                    # The Candidate will immediately increment its TermNumber 
-                    # and send RequestVotes RPCs to the rest of the nodes
-                    
+                    # A Candidate automatically increment its TermNumber 
+                    # and sends RequestVotes RPCs to the rest of the nodes      
                     print("Candidate:", Follower.ID)
                     
-                    if self.ElectionStart == False:
-                                               
+                    if self.ElectionStart == False:                       
                         ###############
                         #Start Election
                         ###############
                         self.ElectionStart = True
+                        print("Start Election")
                                                        
-                        # Save the vote on the Candidate if it won a majority vote
+                        # Save the vote on the Candidate
+                        # ONLY IF it won a majority vote
                         if Follower.voteGranted:
                              self.votesDict[Follower] = True
                         
             # ------------------------------------------------------
-            # IF THERE AN ELECTION HAPPENED, FIND THE WINNING LEADER
+            # IF AN ELECTION HAPPENED, FIND THE WINNING LEADER
             # ELSE, THE CURRENT LEADER WILL KEEP SENDING HEARTBEATS
             # ------------------------------------------------------
             if self.ElectionStart == True:
-                print("Start Election")
-                #3. Find LEADER (majority votes in elections)
+                
+                #3. Find a LEADER (majority votes in elections)
                 candidates = [Candidate for (Candidate, vote) in self.votesDict.items() if vote == True]
-                   
-                if   len(candidates) == 1:
+                
+                if len(candidates) == 1:
+                    # Find the winner
                     self.LEADER = candidates[0]
                        
                 elif len(candidates) > 1:
                     winners = Counter(candidates).most_common(n=2) #returns tuples
                        
-                    # check for split-vote
-                    # i.e. when two Candidates have a vote tie
-                    # if so, the term will have no Leader
-                    # we continue, and we repeat the process
+                    # Check for split-vote! (when 2 Candidates have a vote tie)
+                    # If so, the term will have no Leader. Repeat.
                     if winners[0][1] == winners[1][1]:
                         print("Oh No! Split Vote! No LEADER for this Term\n")
                         continue;
                             
-                    # else, we have a new LEADER!
+                    # Else, get the winner
                     else:
                         self.LEADER = winners[1]
                             
                 else:
-                    #if no leader is elected, we repeat the process of Election
+                    # If no leader is elected, we repeat the process of Election
                     if self.LEADER == None:
                        continue;
-                   
-                # ELECTION ENDS BY ELECTING A NEW LEADER
+                    # Else, election ends by finding a new leader
+                    
                 ###############
                 # END ELECTION
                 ###############
-                self.ElectionStart = False
-                print("------"*3)
-                print("NEW LEADER!! ID:", self.LEADER.ID) 
-                print("------"*3)
-                # Convert self.LEADER to instance of class "Leader"
                 
+                self.ElectionStart = False
+                print("------"*3 \
+                      "NEW LEADER!! ID: {self.LEADER.ID}"
+                      "------"*3)
+                      
+                # Convert self.LEADER to instance of class "Leader"
                 self.LEADER = Leader.become_leader(self.LEADER)
              
                 #4. When LEADER is elected, start the Leader's role
@@ -137,8 +153,8 @@ class Raft():
                   
                 self.LEADER.leader_begin() #INFINITE LOOP PROCESS (THREAD 🧵)
                 #NOW, the Leader is ready to accept CLIENT requests
-               
-               
+    
+    ###########################               
                
                
                

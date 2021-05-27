@@ -17,17 +17,17 @@ class Leader(Node):
         self.nextIndex = None
         self.candidate_object = None
         self.heartbeat_timeout = 0.8 #50*1e-3
-        self.timeStamp = None
-        self.timeStampString = None
- 
-    
         
+    
+    ################
+    # STATIC METHODS
+    ################
     @staticmethod
     def become_leader(candidate_object):
         
         leader = Leader(candidate_object.ID)
         
-        #0. Copy my information from when I was a Follower/Candidate
+        # Copy my information from when I was a Follower/Candidate
         leader.nextIndex = 2
         leader.LOG = candidate_object.LOG
         leader.TermNumber = candidate_object.TermNumber
@@ -36,29 +36,54 @@ class Leader(Node):
         leader.votedFor = candidate_object.votedFor
         leader.commitIndex = candidate_object.commitIndex
         
-        now = datetime.datetime.now()
-        leader.timeStamp = now
-        leader.timeStampString = f"[{now.day}-{now.month}-{now.year} {now.hour}:{now.minute}:{now.second}.{int(str(now.microsecond)[:3])}]"
+        # Debug Printing
+        leader.lastTimeStamp, leader.lastTimeStampString = leader.get_timestamp()
         leader.print_node(leader.timeStampString) #PRINT
         return leader
-   
-   
-    def leader_begin(self):
-        infinite_heartbeats = threading.Thread(target=self._leader_on, name = "Thread Leader ❤️")
-        infinite_heartbeats.start()
+    ################
+    
+       
+    ###########################
+    # LIST OF CLIENT OPERATIONS
+    ###########################
+    def incrementY(self, flag):
+        flag = (flag[0], flag[1]+1)
+        return flag
         
+    def sum(self, data):
+        # Example
+        #self.LEADER.leader_on_receive_request(data, 'sum')
+        return None
+        
+    def sub(self, data):
+        # Example
+        #self.LEADER.leader_on_receive_request(data, 'sub')
+        return None
+    ###########################
+      
+           
+    ###################
+    # PRIVATE FUNCTIONS
+    ###################    
     def _leader_on(self):
 
         #1. Now I am a LEADER,
         #   I periodically send hearbeats to Followers
         while True:
-            print("\n-----------------------------\n"\
-                     "📤 Sending HEARTBEAT RPCs 💓!" )
-            _ = self.AppendEntries(RPC='heartbeat') #💓
+            print("\n----"*10\
+                     "\n📤 Sending HEARTBEAT RPCs 💓!" )
+            self.AppendEntries(RPC='heartbeat') #💓
             sleep(self.heartbeat_timeout)
             
                   
-    
+    ##################
+    # PUBLIC FUNCTIONS 
+    ##################
+
+    def leader_begin(self):
+        infinite_heartbeats = threading.Thread(target=self._leader_on, name = "Thread Leader ❤️")
+        infinite_heartbeats.start()
+         
     def leader_on_receive_request(self, flag, command='incrementY', reps=100):
                
         for _ in range(reps):
@@ -154,10 +179,6 @@ class Leader(Node):
         return responses
         
         
-        
-    # PUBLIC FUNCTIONS 
-    def incrementY(flag):
-        flag = (flag[0], flag[1]+1)
-        return flag
+ 
     	    
     

@@ -9,90 +9,107 @@ from threading import Event
 class Follower(Node):
 
     def __init__(self, ID):
-    	# start timeout
+    	
         super().__init__(ID)
         self.state = 'Follower' 
         self.voteGranted = False 
         self.interrupt_countdown = Event()
-        self.reset_follower_timeout_thread = None
-        self.countdown_stopped = True
+        self.countdown_stopped = True #for mutex
         
-    ''' 
+        
+    ###################
     # PRIVATE FUNCTIONS 
-    '''
-    def _kill_countdown(self):
-        self.interrupt_countdown.set()
-        
+    ###################
+         
     def _start_countdown(self):
-        #mini, maxi = (150*1e-3,300*1e-3)
-        mini, maxi = (3,6)
-        #self.timeout = random()*(maxi-mini)+mini
-        self.timeout = randint(mini, maxi)
+        """
+        Behavior
+            while stop_countdown is not set yet
+            or timeout did not reach the end yet
+            keep the countdown
+        """
+        mini, maxi = (3,6) #mini, maxi = (150*1e-3,300*1e-3)
+        self.timeout = randint(mini, maxi) #self.timeout = random()*(maxi-mini)+mini
         sec = 0
-        #if stop_countdown is not set yet, keep the countdown
+        
         while sec < self.timeout and (self.interrupt_countdown.is_set() == False):
             self.interrupt_countdown.wait(1) #WAIT
             sec+=1
                    
         print(f"\n[ID={self.ID}] Timer ended at {sec}/{self.timeout}")   
     
-    # Follower starts random timeout
-    # and becomes a Candidate as soon as
-    # it reaches the end of its timeout if 
-    # it doesn't receive a hearbeat
-    def _follower_on(self):        
+    
+    def _follower_on(self):      
+        """
+        Behavior:
+            Follower starts random timeout
+            and becomes a Candidate as soon as
+            it reaches the end of its timeout if 
+            it doesn't receive a hearbeat
+        """  
+        
         self.voteGranted = False
         self.state = 'Follower'
         self.countdown_stopped = False
         
-        now = datetime.datetime.now()
-        print(f"\n[ID={self.ID}][ ] [{now.day}-{now.month}-{now.year} {now.hour}:{now.minute}:{now.second}.{int(str(now.microsecond)[:3])}] Timeout will restart. I am Follower now - {self.print_node(print_fn=False)}")   
+        self.lastTimeStamp, self.lastTimeStampString = self.get_timestamp()
+        print(f"\n[ID={self.ID}][ ] [{self.lastTimeStampString}] Timeout will restart. I am Follower now - {self.print_node(print_fn=False)}")   
            
-        self._start_countdown() #TIMEEOUT STARTS
+        self._start_countdown() # < < < < < < < TIMEEOUT STARTS (WAIT)
         
-        # If the timeout was interrupted manually
+        # If the timeout was interrupted (thread KILLED)
         # It means a new LEADER was elected
         # Follower Behavior: do nothing
         if self.interrupt_countdown.is_set() == True:
             print("------------------------------LEADER KILLED MY COUNTDOWN")
             self.countdown_stopped = True
-            sleep(0.1)
+            sleep(0.01)
             return
             
         # Else, it means that the timeout was reached  
-        now = datetime.datetime.now()
-        print(f"\n [ID={self.ID}][x] [{now.day}-{now.month}-{now.year} {now.hour}:{now.minute}:{now.second}.{int(str(now.microsecond)[:3])}] /!\ Timeout reached /!\ I am Candidate now.")
+        self.lastTimeStamp, self.lastTimeStampString = self.get_timestamp()
+        print(f"\n [ID={self.ID}][x] [{self.lastTimeStampString}] /!\ Timeout reached /!\ I am Candidate now.")
         self.heartbeat = False
         self.state = 'Candidate'
+        self.Leader = None
+        self.votedFor = None
                    
         # The Candidate will immediately increment its TermNumber 
         # and send RequestVotes RPCs to the rest of the nodes
         self.RequestVotes(self.followers)
        
-    '''
+    ##################
     # PUBLIC FUNCTIONS
-    '''    
-    #reset timeout of the Follower
-    #by the LEADER
-    #or at initialization
+    ##################
+    
     def reset_timeout(self, followers):
+        """
+        Behavior:     
+            reset timeout of the Follower by:
+             - the LEADER
+             - or at initialization
+        """
         
         self.interrupt_countdown.set()    #True - countdown interrupt button is clicked
         
-        # LOCK the interrupt_countdown Event
+        # MUTEX LOCK the interrupt_countdown Event
         while self.countdown_stopped == False:
             continue;       
         
         self.interrupt_countdown.clear()  #False 
              
         self.followers = followers
-        self.reset_follower_timeout_thread = threading.Thread(target=self._follower_on,
+        reset_follower_timeout_thread = threading.Thread(target=self._follower_on,
                                          name =f'Thread [ID={self.ID}] Timeout Reset')
-        self.reset_follower_timeout_thread.start() 
+        reset_follower_timeout_thread.start() 
         
            
-    #when Follower receives heartbeat, it resets its timeout        
+           
     def on_receive_heartbeat(self, Leader, Leader_TermNumber):
+        """
+        Behavior:
+            When Follower receives heartbeat, it kills its previous thread and resets its timeout.
+        """
         
         print(f"\n📥 [ID={self.ID}] I received a HEARTBEAT check. Leader Term = {Leader_TermNumber}, mine is = {self.TermNumber}")
                         
@@ -120,14 +137,19 @@ class Follower(Node):
             print(f"✅ [ID={self.ID}] Confirmed HEARTBEAT: I reset my timeout, {self.state}") 
             return True
     
+    
     def on_receive_replicate_log(self, newLogEntry, commit_indexOfThePrecedingEntry, TermNumberOfThePrecedingEntry):
         #comparison = compareLOGs(
         return None
                 
-    # Follower votes on a Candidate if it has
-    # a higher term number and an updated LOG and has not already voted
-    # If so, set the vote of this Follower to the Candidate.
+    
     def get_vote(self, candidate):
+        """
+        Behavior:
+            Follower votes on a Candidate if it has
+            a higher term number and an updated LOG and has not already voted
+            If so, set the vote of this Follower to the Candidate.
+        """
         
         #TODO add and _compareWithMyLOG(candidate.LOG)>0:                 
         if candidate.TermNumber > self.TermNumber and self.votedFor is None:

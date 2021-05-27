@@ -1,4 +1,5 @@
 from time import sleep
+import datetime
 
 class Node():
     
@@ -12,7 +13,12 @@ class Node():
         self.heartbeat = True
         self.timeout = None
         self.followers = None
-
+        self.lastTimeStamp = None
+        self.lastTimeStampString = None
+    
+    ###################
+    # PRIVATE FUNCTIONS
+    ###################
     def _compareWithMyLOG(self, incomingLog):
         #compare the 2 unique identifiers of a log
         TermNumber_1  = incomingLog.split("#Term=")[1].split(",")[0]
@@ -21,17 +27,21 @@ class Node():
         #self.TermNumber, self.commitIndex    
         
     
-    def print_node(self, print_fn = True, additional=""):
-        
-         
+    ##################
+    # PUBLIC FUNCTIONS 
+    ##################
+    def print_node(self, print_fn=True, additional=""):
         info = f"ID = {self.ID} | TermNumber = {self.TermNumber} | followers = {len(self.followers)} | {additional}"
-        
         if print_fn:
             print(info)
         else:
             return info
         
-
+    def get_timestamp(self):
+        now = datetime.datetime.now()
+        timestamp = f"[{now.day}-{now.month}-{now.year} {now.hour}:{now.minute}:{now.second}.{int(str(now.microsecond)[:3])}]"
+        return now, timestamp
+        
     """
     def AppendEntries(self, RPC='replicatelog'):
                         
