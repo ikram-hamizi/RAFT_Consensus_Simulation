@@ -16,11 +16,11 @@ class Follower(Node):
         self.interrupt_countdown = Event()
         self.countdown_stopped = True #for mutex
         
-        
+
+           
     ###################
     # PRIVATE FUNCTIONS 
-    ###################
-         
+    ###################       
     def _start_countdown(self):
         """
         Behavior
@@ -36,7 +36,7 @@ class Follower(Node):
             self.interrupt_countdown.wait(1) #WAIT
             sec+=1
                    
-        print(f"\n[ID={self.ID}] Timer ended at {sec}/{self.timeout}")   
+        print(f"[ID={self.ID}] Timer ended at {sec}/{self.timeout}")   
     
     
     def _follower_on(self):      
@@ -53,7 +53,7 @@ class Follower(Node):
         self.countdown_stopped = False
         
         self.lastTimeStamp, self.lastTimeStampString = self.get_timestamp()
-        print(f"\n[ID={self.ID}][ ] [{self.lastTimeStampString}] Timeout will restart. I am Follower now - {self.print_node(print_fn=False)}")   
+        print(f"\n[ID={self.ID}][ ] {self.lastTimeStampString} Timeout will restart. I am Follower now - {self.print_node(print_fn=False)}")   
            
         self._start_countdown() # < < < < < < < TIMEEOUT STARTS (WAIT)
         
@@ -61,14 +61,14 @@ class Follower(Node):
         # It means a new LEADER was elected
         # Follower Behavior: do nothing
         if self.interrupt_countdown.is_set() == True:
-            print("------------------------------LEADER KILLED MY COUNTDOWN")
+            print("~ ~ ~ ~ ~ LEADER KILLED MY COUNTDOWN")
             self.countdown_stopped = True
             sleep(0.01)
             return
             
         # Else, it means that the timeout was reached  
         self.lastTimeStamp, self.lastTimeStampString = self.get_timestamp()
-        print(f"\n [ID={self.ID}][x] [{self.lastTimeStampString}] /!\ Timeout reached /!\ I am Candidate now.")
+        print(f"\n [ID={self.ID}][x] {self.lastTimeStampString} /!\ Timeout reached /!\ I am Candidate now.")
         self.heartbeat = False
         self.state = 'Candidate'
         self.Leader = None
@@ -90,28 +90,61 @@ class Follower(Node):
              - or at initialization
         """
         
-        self.interrupt_countdown.set()    #True - countdown interrupt button is clicked
+        self.interrupt_countdown.set()    #set to True - countdown interrupt button is clicked
         
         # MUTEX LOCK the interrupt_countdown Event
         while self.countdown_stopped == False:
             continue;       
         
-        self.interrupt_countdown.clear()  #False 
+        self.interrupt_countdown.clear()  #set to False 
              
         self.followers = followers
         reset_follower_timeout_thread = threading.Thread(target=self._follower_on,
-                                         name =f'Thread [ID={self.ID}] Timeout Reset')
+                                                         name=f'Thread [ID={self.ID}] Timeout Reset')
         reset_follower_timeout_thread.start() 
         
            
-           
+        def become_follower(self, leader_object):
+        """
+        # Copy my information from when I was a Leader to a Follower object
+        Return: Follower object
+        """
+               
+        # 1. COPY THE CONTENT OF THE LEADER
+        #follower.nextIndex = 2
+        self.LOG = leader_object.LOG
+        self.TermNumber = leader_object.TermNumber
+        self.followers = leader_object.followers
+        self.commitIndex = leader_object.commitIndex
+                
+        # 2. RESET THE FOLLOWER'S INITIAL PROPERTIES
+        # The Follower waits for a new Leader to 
+        # reset its timeout and restarts it
+        # meanwhile, it remains idle
+        self.state = 'Follower'
+        self.votedFor = None
+        self.voteGranted = False
+        self.heartbeat = True
+        self.interrupt_countdown = Event()
+        self.countdown_stopped = True #for mutex
+        
+        
+        # Debug Printing
+        self.lastTimeStamp, self.lastTimeStampString = self.get_timestamp()
+        self.print_node(self.lastTimeStampString) #PRINT
+        
+        del leader_object
+        
+        return self
+        
+               
     def on_receive_heartbeat(self, Leader, Leader_TermNumber):
         """
         Behavior:
             When Follower receives heartbeat, it kills its previous thread and resets its timeout.
         """
         
-        print(f"\n📥 [ID={self.ID}] I received a HEARTBEAT check. Leader Term = {Leader_TermNumber}, mine is = {self.TermNumber}")
+        print(f"\n📥 [ID={self.ID}] I received a HEARTBEAT. (Leader Term = {Leader_TermNumber}. Mine is = {self.TermNumber})")
                         
         # Follower receives rejects Leader's heartbeat
         # If the Leader is stale
@@ -166,7 +199,7 @@ class Follower(Node):
             # 1. CANDIDATE start by voting on itself
             self.votedFor = self
             self.TermNumber = self.TermNumber + 1
-            print(f"[ID={self.ID}] I REQUESTED VOTES Term={self.TermNumber}")
+            print(f" [ID={self.ID}] I REQUESTED VOTES Term={self.TermNumber}")
             #self.start_countdown() #reset timeout
             voteGranted = True
             
@@ -180,7 +213,7 @@ class Follower(Node):
             winnerID = winner[0].ID
             
             if winnerID == self.ID:
-                print(f"[ID={self.ID}][=] I may become Leader. I have {winner[1]} votes")
+                print(f" [ID={self.ID}][=] I may become Leader. I have {winner[1]} votes")
                 
             else:
                 print(f"[ID={self.ID}][x] I cannot become a leader :(")
@@ -189,13 +222,15 @@ class Follower(Node):
                 self.TermNumber -= 1
         else:
             voteGranted = False
+            self.TermNumber -= 1
             print("Follower should not send RequestVotes RPCs") 
             
             
         self.voteGranted = voteGranted
                 
             
-        
+
+#ctrl + . shows emojis list on linux' text editor!
     
     
     

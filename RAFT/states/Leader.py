@@ -7,7 +7,9 @@ import datetime
 
 #import local modueles
 from classes.LogEntry import LogEntry
+from states.Follower import Follower
 from states.Node import Node
+
 
 
 class Leader(Node):
@@ -16,7 +18,8 @@ class Leader(Node):
         super().__init__(ID)
         self.nextIndex = None
         self.candidate_object = None
-        self.heartbeat_timeout = 0.8 #50*1e-3
+        self.heartbeat_timeout = 1 #50*1e-3
+        self.shutdown_counter = 3 #SIMULATION      
         
     
     ################
@@ -24,43 +27,27 @@ class Leader(Node):
     ################
     @staticmethod
     def become_leader(candidate_object):
-        
+    
+        candidate_object.state = 'Leader'
         leader = Leader(candidate_object.ID)
-        
+        leader.candidate_object = candidate_object
         # Copy my information from when I was a Follower/Candidate
         leader.nextIndex = 2
         leader.LOG = candidate_object.LOG
         leader.TermNumber = candidate_object.TermNumber
-        leader.ID = candidate_object.ID
         leader.followers = candidate_object.followers
         leader.votedFor = candidate_object.votedFor
         leader.commitIndex = candidate_object.commitIndex
         
         # Debug Printing
         leader.lastTimeStamp, leader.lastTimeStampString = leader.get_timestamp()
-        leader.print_node(leader.timeStampString) #PRINT
+        leader.print_node(leader.lastTimeStampString) #PRINT
+        
+        del candidate_object
+        
         return leader
     ################
-    
-       
-    ###########################
-    # LIST OF CLIENT OPERATIONS
-    ###########################
-    def incrementY(self, flag):
-        flag = (flag[0], flag[1]+1)
-        return flag
         
-    def sum(self, data):
-        # Example
-        #self.LEADER.leader_on_receive_request(data, 'sum')
-        return None
-        
-    def sub(self, data):
-        # Example
-        #self.LEADER.leader_on_receive_request(data, 'sub')
-        return None
-    ###########################
-      
            
     ###################
     # PRIVATE FUNCTIONS
@@ -70,15 +57,54 @@ class Leader(Node):
         #1. Now I am a LEADER,
         #   I periodically send hearbeats to Followers
         while True:
-            print("\n----"*10\
-                     "\n📤 Sending HEARTBEAT RPCs 💓!" )
-            self.AppendEntries(RPC='heartbeat') #💓
-            sleep(self.heartbeat_timeout)
+        
+            '''SIMULATE SHUTDOWN OF LEADER'''
+            print(f"------ COUNTER={self.shutdown_counter}")
+            self.shutdown_counter -= 1
+            if self.shutdown_counter == 0:
             
-                  
+                print("LEADER IS DEAD")
+                self.leader_on_death()
+                return
+                
+            
+            print("\n------------------------------\n"\
+                    "📤 Sending HEARTBEAT RPCs 💓!" )
+            self.AppendEntries(RPC='heartbeat') #💓
+            sleep(self.heartbeat_timeout) 
+        
+    ###################        
+    
+             
+    ###########################
+    # LIST OF CLIENT OPERATIONS
+    ###########################
+    def incrementY(self, flag):
+        flag = (flag[0], flag[1]+1)
+        return flag
+        
+    def sum(self, data):
+        # Example
+
+        return None
+        
+    def sub(self, data):
+        # Example
+        return None
+    ###########################     
+    
+    
     ##################
     # PUBLIC FUNCTIONS 
     ##################
+    def leader_on_death(self):
+       """
+       # Copy info from my previous state as a Leader to Follower object
+       Return: Follower object
+       """
+       self.candidate_object.become_follower(self)
+
+        
 
     def leader_begin(self):
         infinite_heartbeats = threading.Thread(target=self._leader_on, name = "Thread Leader ❤️")
@@ -86,10 +112,17 @@ class Leader(Node):
          
     def leader_on_receive_request(self, flag, command='incrementY', reps=100):
                
+        if command == 'incrementY':
+            function = incrementY
+            
         for _ in range(reps):
             #1. LEADER makes the change request from CLIENT
-            entry = incrementY(flag)
-            sleep(4) # For simulation
+            
+            entry = function(flag)
+            sleep(3) # For simulation
+            print("----------------------\n"\
+                 f"entry now is = {entry}...\n"\
+                  "----------------------")
             
             """
             #2. LEADER adds changes to LEADER's log
