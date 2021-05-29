@@ -12,5 +12,8 @@ class LogEntry():
     	self.commitIndex = commitIndex
     	
     
-    def getEntry(self):
+    def print_entry(self):
     	return f"LOG[#Term={self.TermNumber}, #commitIndex={self.commitIndex}: Command={self.command} → Entry={self.entry}"
+    	
+    	
+
