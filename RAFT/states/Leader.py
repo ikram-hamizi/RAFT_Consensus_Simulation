@@ -3,6 +3,7 @@ from collections import Counter
 import time
 from time import sleep
 import threading
+from threading import Event
 import datetime 
 import math 
 
@@ -23,6 +24,8 @@ class Leader(Node):
         self.idle = True
         self.my_followers = None
         self.verbose = verbose
+        self.kill_leader_thread = Event()
+        self.state = 'Leader'
         
     
     ################
@@ -62,29 +65,30 @@ class Leader(Node):
         
         return leader
     ################
-        
            
-
-    
     ##################
     # PUBLIC FUNCTIONS 
     ##################
     def leader_on_death(self):
-       """
-       # Copy info from my previous state as a Leader to Follower object
-       Return: Follower object
-       """
-       
-       leader_index = self.Leader.ID - 1
-       self.followers[leader_index] = self.candidate_object
-       self.candidate_object.become_follower_again(self)
-       
-       return self.candidate_object
+        """
+        # Copy info from my previous state as a Leader to Follower object
+        Return: Follower object
+        """
+        self.state = 'DeadLeader'
+        self.candidate_object.idle = self.idle
+        self.candidate_object = self.candidate_object.become_follower_again(self)
+        
+        leader_index = self.Leader.ID - 1
+        self.followers[leader_index] = self.candidate_object
+        
+        return self.candidate_object
 
 
     def leader_begin(self):
+
         infinite_heartbeats = threading.Thread(target=self._leader_on, name = "Thread Leader ❤️ + 📑️")
         infinite_heartbeats.start()
+         
          
     def on_receive_CLIENT_request(self, flag, command='incrementY', reps=100):
         self.idle = False
@@ -92,32 +96,48 @@ class Leader(Node):
         if command == 'incrementY':
             function = self.incrementY
         
-        entry = flag   
-        for _ in range(reps):
-            #1. LEADER makes the change request from CLIENT
+        entry = flag  
+        
+        iterr = 0
+        if len(self.LOG) > 0:
+            entry = self.LOG[len(self.LOG)-1].entry
+            iterr = self.LOG[len(self.LOG)-1].iteration+1
+            #print(f"....Latest entry={entry}, Latest iter={iterr}....")#DEBUG
+         
+        for i in range(iterr, reps):
+            if self.kill_leader_thread.is_set():
+                self.idle = True
+                print(f"[☠️  {Colors.FAIL} Simulate Leader Failure/Shutdown] Command stopped at iteration={i}{Colors.END}")
+                return False
             
+            #print(f"{Colors.BG_WHITE}i = {i} in ({iterr},{reps}){Colors.END}") #DEBUG
+                            
+            #1. LEADER makes the change request from CLIENT
             entry = function(entry)
-            if self.verbose:
-                sleep(1) # For simulation
             
             if self.verbose:
                 print("--------------------------------------\n"\
-                      "✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦LOG✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦\n"\
+                     f"✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦LOG[{self.ID}]✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦\n"\
                      f"entry now is = {entry}...\n"\
                       "✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦✦\n"\
                       "--------------------------------------\n")
             
             #2. LEADER SAVES THIS TO LOG
-            newLogEntry = LogEntry(command, entry, self.TermNumber, self.commitLength) #, self.commitIndex)
+            newLogEntry = LogEntry(command, entry, self.TermNumber, self.commitLength, iteration=i) 
             self.LOG.append(newLogEntry)
             self.ackdLength[self] = len(self.LOG)  
             
             #3. LEADER replicates the entry
             self.send(RPC='REPLICATELOG')
+            
+            if self.verbose:
+                sleep(1) # For simulation
         
-                
+        print("FINISHED JOB")
+        
         flag = entry
-        self.idle = True     
+        self.idle = True  
+        
         return flag
      
     def replicate_log(self, follower):
@@ -126,7 +146,7 @@ class Leader(Node):
         
         if self.verbose:
             print(f"\n*[ID={self.ID}]* I AM REPLICATING LOG")
-            print(f"📤️ Append Log to follower [{follower.ID}]. "\
+            print(f"✏️ Append Log to follower [{follower.ID}]. "\
                   f"(Followers={ids})")
               
         f_logLength_from_L = self.sentLength[follower]
@@ -223,34 +243,43 @@ class Leader(Node):
     
     
     
-    def _leader_on(self):
-            
-        # RUNS AS A THREAD
+    def _leader_on(self):        
+        # FUNC RUNS AS A THREAD
+                 
         initial_counter = self.shutdown_counter
         #1. Now I am a LEADER,
-        #   I periodically send hearbeats to Followers
-        while self.idle:
-        
-            '''SIMULATE SHUTDOWN OF LEADER'''
-            if self.verbose:
-                self.shutdown_counter -= 1
-                print(f"\nSIMULATE SHUTDOWN OF LEADER ⏰️ {self.shutdown_counter}/{initial_counter}")
-                if self.shutdown_counter == 0:
-                    print(f"☠️  ☠️  ☠️  {Colors.FAIL}LEADER [{self.ID}] IS DEAD{Colors.END}   ☠️  ☠️  ☠️\n")
-                    self.leader_on_death()
-                    return
-                
+        #I periodically send hearbeats to Followers
+        while True:
+                            
+            #SIMULATE SHUTDOWN OF LEADER
+            ############################
+            if self.idle == False:
+                if self.verbose:
+                    self.shutdown_counter -= 1
+                    print(f"\nSIMULATE SHUTDOWN OF LEADER ⏰️ {self.shutdown_counter}/{initial_counter}")
+                    if self.shutdown_counter == 0:
+                        self.kill_leader_thread.set()
+                        print(f"☠️  ☠️  ☠️  {Colors.FAIL}LEADER [{self.ID}] IS DEAD{Colors.END}   ☠️  ☠️  ☠️\n")
+                        self.leader_on_death()
+                        return
+                ############################
+              
             if self.verbose:
                 print("\n------------------------(1)---------------------------\n"\
                         "📤 Periodically Sending HEARTBEATs (if request on halt)💓!" )
-            self.send(RPC='heartbeat')    #periodically heartbeat
             
-            if self.verbose:
-                print("\n--------------------(2)----------------------\n"\
-                        "📤 Periodically Sending APPENDENTRIES RPCs 📑️" )    
-            self.send(RPC='REPLICATELOG') #preiodically replicate
-            
-            sleep(self.heartbeat_timeout) 
+            if self.kill_leader_thread.is_set() == False:  
+                self.send(RPC='heartbeat')    #periodically heartbeat
+                
+                if self.verbose:
+                    print("\n--------------------(2)----------------------\n"\
+                            "📤 Periodically Sending APPENDENTRIES RPCs 📑️" )    
+                self.send(RPC='REPLICATELOG') #preiodically replicate
+                
+                sleep(self.heartbeat_timeout) 
+            else:
+                print(f"{Colors.FAIL}[{self.ID}] LEFT{Colors.END}")
+                break
      
     def _CommitLogEntries(self):
         """

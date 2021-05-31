@@ -14,13 +14,14 @@ from classes.Colors import Colors
 
 class Follower(Node):
                 
-    def __init__(self, ID, verbose=True):
+    def __init__(self, ID, verbose, election_end):
         super().__init__(ID)
         self.state = 'Follower' 
         self.interrupt_countdown = Event()
         self.countdown_stopped = True #for mutex
         self.votesReceived = []
         self.verbose = verbose
+        self.election_end = election_end 
          
     #*****************
     # PUBLIC FUNCTIONS
@@ -75,6 +76,12 @@ class Follower(Node):
         self.Leader   = None 
         self.interrupt_countdown = Event()
         self.countdown_stopped = True #for mutex
+        
+        for f in leader_object.followers:
+            f.Leader = None
+            f.votedFor = None
+            
+        self.followers = leader_object.followers    
         self.votesReceived = []
         self.sentLength = {}
         self.ackdLength = {}
@@ -184,13 +191,12 @@ class Follower(Node):
             
             # Print for debugging
             if self.verbose:
-                print(f"\n {Colors.WARNING}[ID={self.ID}] I REQUESTED VOTES ⚠️ Term={self.TermNumber}{Colors.END}")
-            
-                        
+                print(f"\n{Colors.WARNING}[ID={self.ID}] I REQUESTED VOTES  ⚠️  Term={self.TermNumber}{Colors.END}")
+                          
             # 2. send RequestVotes RPCs to FOLLOWERs
             # Start Election
             lastLogTerm = 0
-            if len(self.LOG) >0:
+            if len(self.LOG)>0:
                 lastLogTerm = self.LOG[len(self.LOG)-1].TermNumber # 0 if LOG is empty
             
             # Exclude self from the list of voters
@@ -221,11 +227,22 @@ class Follower(Node):
             self.votedFor = None
             self.Leader = leader
             self.state = 'Follower'
-        
+            
+            if self.Leader is None:
+                L_info = ""
+            else:
+                L_info = f"Leader is {self.Leader.ID}"
+            print(f"\n{Colors.GRAY}[ID{self.ID}] Term number obsolete. I am no longer a Candidate.{Colors.END}.{L_info}")
         
         if (L_TermNumber == self.TermNumber) and (self.state == 'Candidate'):
             self.state = 'Follower'
             self.Leader = leader
+            
+            if self.Leader is None:
+                L_info = ""
+            else:
+                L_info = f"Leader is {self.Leader.ID}"
+            print(f"\n{Colors.GRAY}[ID{self.ID}] Term number obsolete. I am no longer a Candidate.{Colors.END}. {L_info}")
         
         #2. If Terms are the same, check if the LOG is the same
         #   Otherwise, send to the Leader to give us earlier LOG entries
@@ -290,7 +307,6 @@ class Follower(Node):
 
         vote = False 
         myLogTerm = 0
-        
         if len(self.LOG) > 0:  
             myLogTerm = self.LOG[len(self.LOG)-1].TermNumber # 0 if LOG is empty
         
@@ -302,11 +318,15 @@ class Follower(Node):
         
 
         if logAssert and termAssert:
+            print(f"\n[ID={self.ID}]{Colors.BLUE} I VOTED FOR CANDIDATE=[ID={candidate.ID}]{Colors.END}")
+            
             self.TermNumber = candidate_TermNumber #MAKE v_TermNumber == c_TermNumber
             self.state = 'Follower'           
             self.votedFor = candidate
             vote = True       
-        
+            
+            myvote = "" if self.votedFor is None else f"(check={self.votedFor.ID})"
+            print(f"\n[ID={self.ID}]{Colors.GRAY} I DID NOT VOTE FOR CANDIDATE=[ID={candidate.ID}]. I probably already voted {myvote}{Colors.END}.")
         # send vote response
         self.send(RPC='VoteResponse', Candidate=candidate, vote=vote)
                 
@@ -314,22 +334,25 @@ class Follower(Node):
     RPC='VoteResponse'  
     """ 
     def _c_on_receive_votes(self, voter, v_term, vote):
-        if self.state == 'Candidate':
-        
+        if self.state == 'Candidate' and self.election_end.is_set() == False:
+            
             if v_term == self.TermNumber and vote:
                 #SUCESSFUL VOTE
                 self.votesReceived.append(voter) #append new voter
                 
-                if len(self.votesReceived) >= math.ceil((len([self.followers])+1)/2): # This avoids split-vote          
+                # This avoids split-vote            
+                if len(self.votesReceived) >= math.ceil((len([self.followers])+1)/2):
+         
                     voters = [v.ID for v in self.votesReceived]    
                     self.lastTimeStamp, self.lastTimeStampString = self.get_timestamp()
                     
-                    print("\n**✰✰**✰✰**✰✰**✰✰**✰✰**✰✰**✰**✰✰**✰✰**✰✰**✰✰**"\
-                         f"\n👑️ [ID={self.ID}] End of Election. {Colors.OKGREEN}I BECAME LEADER!{Colors.END}"\
-                         f"\n   voters={voters} | {self.lastTimeStampString}"\
-                          "\n**✰✰**✰✰**✰✰**✰✰**✰✰**✰✰**✰**✰✰**✰✰**✰✰**✰✰**\n")
-                   
+                    print(f"\n\n{Colors.OKGREEN}**✰✰**✰✰**✰✰**✰✰**✰✰**✰✰**✰**✰✰**✰✰**✰✰**✰✰**{Colors.END}"\
+                          f"\n👑️ [ID={self.ID}] End of Election. {Colors.OKGREEN}I BECAME LEADER!{Colors.END}"\
+                          f"\n   voters={voters} | {self.lastTimeStampString}"\
+                          f"\n{Colors.OKGREEN}**✰✰**✰✰**✰✰**✰✰**✰✰**✰✰**✰**✰✰**✰✰**✰✰**✰✰**{Colors.END}\n")
+                    
                     self.state = 'Leader'
+                    self.election_end.set()
                                      
                     # Exclude self from the list of voters
                     voters = self.followers[:self.ID-1]
@@ -344,15 +367,16 @@ class Follower(Node):
                     self.Leader = Leader.become_leader(self)
                     # Send heartbeats + REPLICATE LOG
                     self.Leader.leader_begin()
-                    #self.Leader.send('REPLICATELOG')
-                    sleep(2)
-                    
-                                                
+                                                                  
                         
             elif v_term > self.TermNumber:
                 #UNSUCCESSFUL VOTE
                 if self.verbose:
-                    print(f"[ID{self.ID}] I did not become a Leader :( ")
+                    if self.Leader is None:
+                        L_info = ""
+                    else:
+                        L_info = f"Leader is {self.Leader.ID}"
+                    print(f"\n{Colors.GRAY}[ID{self.ID}] Votes={len(self.votesReceived)}. I did not become a Leader :({Colors.END}.{L_info}")
                 self.TermNumber = v_term
                 self.state = 'Follower'
                 self.votedFor = None    
@@ -414,7 +438,7 @@ class Follower(Node):
         # It means a new LEADER was elected
         # Follower waits until reset_timeout() is called at heartbeat RPC
             if self.verbose:
-                print(f"[self.ID] ~ ~ ~ Leader killed my countdown and will restart it again")
+                print(f"[ID={self.ID}] ~ ~ ~ Leader killed my countdown and will restart it again")
             self.countdown_stopped = True
             sleep(0.01)
             return
@@ -427,7 +451,7 @@ class Follower(Node):
             self.lastTimeStamp, self.lastTimeStampString = self.get_timestamp()
             
             if self.verbose:
-                print(f"\n [ID={self.ID}][x] {self.lastTimeStampString} {Colors.WARNING}/!\ Timeout reached /!\ "\
+                print(f"\n[ID={self.ID}][x] {self.lastTimeStampString} {Colors.WARNING}/!\ Timeout reached /!\ "\
                       f"I am Candidate now.{Colors.END}")
 
             self.state = 'Candidate'      
