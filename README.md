@@ -39,3 +39,6 @@ result = raft.command(flag=flag, command='incrementY', reps=100)
 │   └── Node.py                 <- Node is the parent class of Leader and Follower
 └── test.py
 ```
+
+
+Source: https://www.cl.cam.ac.uk/teaching/2021/ConcDisSys/materials.html
